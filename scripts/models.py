@@ -1,45 +1,48 @@
 """
 models.py — PyTorch model definition for EEG Motor Imagery classification.
 
-Architecture: ParallelCNNRNN
-  CNN and LSTM branches run in parallel, fused before the classification head.
+Architecture: ParallelCNNGRU  (following the Grad-CAM EEG decoding paper)
+  CNN and GRU branches run in parallel, fused before the classification head.
   Supports four fusion strategies: 'concat', 'add', 'concat_fc', 'concat_conv1d'.
+
+Reference:
+  Cui et al., "EEGNET + Grad-CAM for EEG Motor Imagery Decoding", 2023.
 """
 
 import torch
 import torch.nn as nn
 
 
-class ParallelCNNRNN(nn.Module):
-    """Parallel CNN + LSTM with configurable fusion.
+class ParallelCNNGRU(nn.Module):
+    """Parallel CNN + GRU with configurable fusion.
 
     Data flow:
-        CNN branch: (B,W,1,H,Wd) → 2-D CNN per frame → sum over W → cnn_fc vector
-        RNN branch: (B,W,n_electrodes) → linear projection → LSTM → rnn_fc vector
-        Fusion    : configurable combination of the two branch outputs
-        Output    : (B, n_classes) raw logits
+        CNN branch : (B,W,1,H,Wd) → 2-D CNN per frame → sum over W → cnn_fc vector
+        GRU branch : (B,W,n_electrodes) → linear projection → GRU → rnn_fc vector
+        Fusion     : configurable combination of the two branch outputs
+        Output     : (B, n_classes) raw logits
 
     Fusion strategies (``fusion`` arg):
-        'concat'       — simple concatenation, no extra parameters
-        'add'          — element-wise addition (requires cnn_fc == rnn_fc_out)
-        'concat_fc'    — concatenation → learnable FC layer
-        'concat_conv1d'— concatenation → 1-D convolution (point-wise MLP)
+        'concat'        — simple concatenation, no extra parameters
+        'add'           — element-wise addition (requires cnn_fc == rnn_fc_out)
+        'concat_fc'     — concatenation → learnable FC layer
+        'concat_conv1d' — concatenation → 1-D convolution (point-wise MLP)
     """
 
     def __init__(
         self,
-        window_size: int = 10,
-        conv_channels: int = 32,
-        cnn_fc: int = 256,
-        n_electrodes: int = 64,
-        rnn_fc_in: int = 256,
-        lstm_hidden: int = 16,
-        lstm_layers: int = 2,
-        rnn_fc_out: int = 128,
-        n_classes: int = 4,
-        dropout: float = 0.5,
-        fusion: str = "concat",
-        **kwargs,               # absorb extra config keys silently
+        window_size:  int   = 10,
+        conv_channels: int  = 32,
+        cnn_fc:       int   = 256,
+        n_electrodes: int   = 64,
+        rnn_fc_in:    int   = 256,
+        gru_hidden:   int   = 16,     # was lstm_hidden
+        gru_layers:   int   = 2,      # was lstm_layers
+        rnn_fc_out:   int   = 128,
+        n_classes:    int   = 4,
+        dropout:      float = 0.5,
+        fusion:       str   = "concat",
+        **kwargs,                     # absorb extra config keys silently
     ):
         super().__init__()
         self.fusion = fusion
@@ -59,18 +62,20 @@ class ParallelCNNRNN(nn.Module):
             nn.Dropout(dropout),
         )
 
-        # ── RNN branch ─────────────────────────────────────────────────────────
+        # ── GRU branch ─────────────────────────────────────────────────────────
+        # GRU is chosen over LSTM per the Grad-CAM EEG decoding paper:
+        #   fewer parameters, faster on MPS, comparable or better accuracy.
         self.rnn_proj = nn.Sequential(
             nn.Linear(n_electrodes, rnn_fc_in),
             nn.ELU(inplace=True),
         )
-        self.lstm = nn.LSTM(
-            rnn_fc_in, lstm_hidden, lstm_layers,
+        self.gru = nn.GRU(
+            rnn_fc_in, gru_hidden, gru_layers,
             batch_first=True,
-            dropout=dropout if lstm_layers > 1 else 0.0,
+            dropout=dropout if gru_layers > 1 else 0.0,
         )
         self.rnn_head = nn.Sequential(
-            nn.Linear(lstm_hidden, rnn_fc_out),
+            nn.Linear(gru_hidden, rnn_fc_out),
             nn.ELU(inplace=True),
             nn.Dropout(dropout),
         )
@@ -111,12 +116,13 @@ class ParallelCNNRNN(nn.Module):
         cnn_frames = self.cnn_fc(
             self.cnn_features(cnn_x.reshape(B * W, C, H, Wd))
         )                                                          # (B*W, cnn_fc)
-        cnn_out = cnn_frames.reshape(B, W, -1).sum(dim=1)        # sum over W → (B, cnn_fc)
+        cnn_out = cnn_frames.reshape(B, W, -1).sum(dim=1)         # sum over W → (B, cnn_fc)
 
-        # ── RNN branch ──
+        # ── GRU branch ──
+        # GRU returns (output, h_n); h_n shape is (gru_layers, B, gru_hidden).
         proj    = self.rnn_proj(rnn_x.reshape(B * W, -1)).reshape(B, W, -1)
-        lstm_h  = self.lstm(proj)[0][:, -1, :]                   # last step → (B, lstm_hidden)
-        rnn_out = self.rnn_head(lstm_h)                           # (B, rnn_fc_out)
+        gru_out, _ = self.gru(proj)                               # (B, W, gru_hidden)
+        rnn_out = self.rnn_head(gru_out[:, -1, :])               # last step → (B, rnn_fc_out)
 
         # ── Fusion ──
         if self.fusion == "concat":
@@ -133,8 +139,8 @@ class ParallelCNNRNN(nn.Module):
 
 
 # ── Convenience factory ───────────────────────────────────────────────────────
-def build_model(cfg: dict, window: int, n_classes: int, dropout: float) -> ParallelCNNRNN:
-    """Instantiate ParallelCNNRNN from a config dict.
+def build_model(cfg: dict, window: int, n_classes: int, dropout: float) -> ParallelCNNGRU:
+    """Instantiate ParallelCNNGRU from a config dict.
 
     Args:
         cfg       : model kwargs dict (e.g. config.PARALLEL_CFG)
@@ -143,6 +149,6 @@ def build_model(cfg: dict, window: int, n_classes: int, dropout: float) -> Paral
         dropout   : dropout probability
 
     Returns:
-        ParallelCNNRNN instance (not yet moved to a device)
+        ParallelCNNGRU instance (not yet moved to a device)
     """
-    return ParallelCNNRNN(window_size=window, n_classes=n_classes, dropout=dropout, **cfg)
+    return ParallelCNNGRU(window_size=window, n_classes=n_classes, dropout=dropout, **cfg)

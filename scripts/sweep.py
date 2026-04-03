@@ -1,11 +1,11 @@
 """
 sweep.py — Short hyperparameter sweep comparing fusion strategies.
 
-Sweeps four fusion methods for the Parallel CNN-RNN:
+Sweeps four fusion methods for the Parallel CNN-GRU:
     'concat', 'concat_fc', 'add', 'concat_conv1d'
 
 Each run is independent; device memory is freed between runs to avoid
-accumulation on M2 unified memory.
+accumulation on M2 Pro unified memory.
 """
 
 import os
@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+
+from torch.amp import GradScaler
 
 import config
 from models import build_model
@@ -52,10 +54,12 @@ def _run_single(
 
     criterion = nn.CrossEntropyLoss()
     optimiser = torch.optim.Adam(model.parameters(), lr=lr)
+    # GradScaler is only active for CUDA; disabled (no-op) on MPS/CPU
+    scaler    = GradScaler(enabled=(device.type == "cuda"))
     te_accs: List[float] = []
 
     for _ in range(1, sweep_epochs + 1):
-        train_epoch(model, train_loader, criterion, optimiser, device)
+        train_epoch(model, train_loader, criterion, optimiser, scaler, device)
         _, te_acc, _, _ = evaluate(model, test_loader, criterion, device)
         te_accs.append(te_acc)
 
@@ -106,7 +110,7 @@ def run_sweep(
             lw=2,
             label=f"{r['name']}  (best {r['best_acc'] * 100:.2f}%)",
         )
-    ax.set(xlabel="Epoch", ylabel="Test Acc (%)", title="Parallel CNN-RNN — Fusion Sweep")
+    ax.set(xlabel="Epoch", ylabel="Test Acc (%)", title="Parallel CNN-GRU — Fusion Sweep")
     ax.legend()
     ax.grid(alpha=0.3)
     plt.tight_layout()
