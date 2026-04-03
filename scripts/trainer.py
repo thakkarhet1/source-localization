@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 from torch.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 import config
 
@@ -49,7 +50,8 @@ def train_epoch(
     correct    = 0
     n_samples  = 0
 
-    for cnn_x, rnn_x, labels in loader:
+    bar = tqdm(loader, desc="  train", leave=False, unit="batch")
+    for cnn_x, rnn_x, labels in bar:
         cnn_x  = cnn_x.to(device, dtype=torch.float32, non_blocking=True)
         rnn_x  = rnn_x.to(device, dtype=torch.float32, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
@@ -68,6 +70,8 @@ def train_epoch(
         total_loss += loss.item() * labels.size(0)
         correct    += (logits.argmax(dim=1) == labels).sum().item()
         n_samples  += labels.size(0)
+
+        bar.set_postfix(loss=f"{total_loss / n_samples:.4f}", acc=f"{correct / n_samples:.4f}")
 
     return total_loss / n_samples, correct / n_samples
 
@@ -92,7 +96,7 @@ def evaluate(
     all_preds  : List[int] = []
     all_labels : List[int] = []
 
-    for cnn_x, rnn_x, labels in loader:
+    for cnn_x, rnn_x, labels in tqdm(loader, desc="   eval", leave=False, unit="batch"):
         cnn_x  = cnn_x.to(device, dtype=torch.float32, non_blocking=True)
         rnn_x  = rnn_x.to(device, dtype=torch.float32, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
@@ -203,7 +207,14 @@ def run_training(
     model.to(device)
     print(f"\n[trainer] Training | epochs {start_epoch}→{epochs} | device={device}\n")
 
-    for epoch in range(start_epoch, epochs + 1):
+    epoch_bar = tqdm(
+        range(start_epoch, epochs + 1),
+        desc="Epochs",
+        unit="ep",
+        initial=start_epoch - 1,
+        total=epochs,
+    )
+    for epoch in epoch_bar:
         t0 = time.perf_counter()
 
         tr_loss, tr_acc = train_epoch(model, train_loader, criterion, optimiser, scaler, device)
@@ -215,29 +226,35 @@ def run_training(
         history["te_acc" ].append(te_acc)
 
         # ── Save best weights ────────────────────────────────────────────────
+        new_best = ""
         if te_acc > best_acc:
             best_acc = te_acc
             torch.save(model.state_dict(), ckpt_path)
-            print(f"  🌟 New best: {best_acc:.4f} → {ckpt_path}")
+            new_best = " 🌟"
 
         # ── Periodic full checkpoint ─────────────────────────────────────────
+        ckpt_tag = ""
         if epoch % checkpoint_interval == 0 or epoch == epochs:
             snapshot_path = os.path.join(output_dir, f"parallel_epoch_{epoch}.pt")
             _save_checkpoint(snapshot_path, epoch, model, optimiser, scaler, best_acc, history)
             _save_checkpoint(resume_path,   epoch, model, optimiser, scaler, best_acc, history)
-            print(f"  💾 Checkpoint: {snapshot_path}")
+            ckpt_tag = " 💾"
 
         # ── Release device memory each epoch (important for MPS) ─────────────
         _free_device_cache(device)
 
-        # ── Progress log every epoch (ensures nothing is missed in short runs) ─
+        # ── Update epoch bar with live metrics ───────────────────────────────
         elapsed = time.perf_counter() - t0
-        print(
-            f"  Ep {epoch:3d}/{epochs} | "
-            f"tr={tr_loss:.4f}/{tr_acc:.4f} | "
-            f"te={te_loss:.4f}/{te_acc:.4f} | "
-            f"best={best_acc:.4f} | {elapsed:.1f}s"
+        epoch_bar.set_postfix(
+            tr_loss=f"{tr_loss:.4f}",
+            tr_acc=f"{tr_acc:.4f}",
+            te_loss=f"{te_loss:.4f}",
+            te_acc=f"{te_acc:.4f}",
+            best=f"{best_acc:.4f}",
+            s=f"{elapsed:.1f}",
         )
+        if new_best or ckpt_tag:
+            tqdm.write(f"  Ep {epoch:3d}/{epochs}{new_best}{ckpt_tag}")
 
     print(f"\n✅  Training done. Best test accuracy: {best_acc:.4f} → {ckpt_path}")
     return dict(history), best_acc

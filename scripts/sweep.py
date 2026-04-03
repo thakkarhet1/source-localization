@@ -15,8 +15,8 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-
 from torch.amp import GradScaler
+from tqdm import tqdm
 
 import config
 from models import build_model
@@ -58,7 +58,7 @@ def _run_single(
     scaler    = GradScaler(enabled=(device.type == "cuda"))
     te_accs: List[float] = []
 
-    for _ in range(1, sweep_epochs + 1):
+    for _ in tqdm(range(1, sweep_epochs + 1), desc=f"  epochs", leave=False, unit="ep"):
         train_epoch(model, train_loader, criterion, optimiser, scaler, device)
         _, te_acc, _, _ = evaluate(model, test_loader, criterion, device)
         te_accs.append(te_acc)
@@ -92,13 +92,14 @@ def run_sweep(
         output_dir   : directory to save the plot
     """
     results = []
-    for raw_cfg in SWEEP_CFGS:
+    cfg_bar = tqdm(SWEEP_CFGS, desc="Sweep configs", unit="cfg")
+    for raw_cfg in cfg_bar:
         name = raw_cfg["name"]
         overrides = {k: v for k, v in raw_cfg.items() if k != "name"}
-        print(f"\n── Sweep: {name}")
+        cfg_bar.set_description(f"Sweep: {name}")
         te_accs = _run_single(overrides, train_loader, test_loader, device, sweep_epochs, lr)
         best = max(te_accs)
-        print(f"   Best acc = {best:.4f}")
+        tqdm.write(f"  {name:25s}  best={best:.4f}")
         results.append({"name": name, "best_acc": best, "history": te_accs})
 
     # ── Plot ────────────────────────────────────────────────────────────────
