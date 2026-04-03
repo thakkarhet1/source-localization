@@ -35,7 +35,7 @@ NUM_SUBJECTS = 10      # Limit to first N subjects (0 or None for all 108)
 
 # ── M2 Pro-optimised batch size and LR ────────────────────────────────────────
 # M2 Pro has 16 GB unified memory; batch 128 is a good starting point.
-BATCH   = 128
+BATCH   = 32
 LR      = 1e-4
 DROPOUT = 0.5
 
@@ -61,3 +61,8 @@ PARALLEL_CFG = dict(
 
 # ── Sweep ──────────────────────────────────────────────────────────────────────
 SWEEP_EPOCHS = 10     # Keep short on M2 Pro; each epoch is slower than a T4 GPU
+
+# ── Checkpointing ──────────────────────────────────────────────────────────────
+# Save a full resume snapshot (and a dated epoch file) every N epochs.
+# Set to 1 to checkpoint after every epoch.
+CHECKPOINT_INTERVAL = 5

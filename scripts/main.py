@@ -140,6 +140,7 @@ def main() -> None:
             epochs=args.epochs,
             lr=args.lr,
             output_dir=config.OUTPUT_DIR,
+            checkpoint_interval=config.CHECKPOINT_INTERVAL,
         )
     else:
         print("[main] --eval-only: skipping training, loading checkpoint.")

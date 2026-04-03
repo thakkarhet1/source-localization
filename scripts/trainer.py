@@ -151,7 +151,7 @@ def run_training(
     epochs: int = config.EPOCHS,
     lr: float = config.LR,
     output_dir: str = config.OUTPUT_DIR,
-    checkpoint_interval: int = 10,
+    checkpoint_interval: int = config.CHECKPOINT_INTERVAL,
 ) -> Tuple[History, float]:
     """Full training loop with resume support and periodic checkpointing.
 
@@ -230,15 +230,14 @@ def run_training(
         # ── Release device memory each epoch (important for MPS) ─────────────
         _free_device_cache(device)
 
-        # ── Progress log every 5 epochs ──────────────────────────────────────
-        if epoch % 5 == 0 or epoch == start_epoch or epoch == epochs:
-            elapsed = time.perf_counter() - t0
-            print(
-                f"  Ep {epoch:3d}/{epochs} | "
-                f"tr={tr_loss:.4f}/{tr_acc:.4f} | "
-                f"te={te_loss:.4f}/{te_acc:.4f} | "
-                f"best={best_acc:.4f} | {elapsed:.1f}s"
-            )
+        # ── Progress log every epoch (ensures nothing is missed in short runs) ─
+        elapsed = time.perf_counter() - t0
+        print(
+            f"  Ep {epoch:3d}/{epochs} | "
+            f"tr={tr_loss:.4f}/{tr_acc:.4f} | "
+            f"te={te_loss:.4f}/{te_acc:.4f} | "
+            f"best={best_acc:.4f} | {elapsed:.1f}s"
+        )
 
     print(f"\n✅  Training done. Best test accuracy: {best_acc:.4f} → {ckpt_path}")
     return dict(history), best_acc
