@@ -31,7 +31,7 @@ class EEGDataset(Dataset):
     __getitem__ returns: (cnn_tensor, rnn_tensor, label).
     """
 
-    def __init__(self, data_dir: str, num_subjects: int = None):
+    def __init__(self, data_dir: str, start_subject: int = 1, end_subject: int = 108):
         labels_path = os.path.join(data_dir, "S001_S108_win10_labels.npz")
         cnn_path    = os.path.join(data_dir, "S001_S108_win10_cnn_data.npz")
         rnn_path    = os.path.join(data_dir, "S001_S108_win10_rnn_data.npz")
@@ -42,30 +42,33 @@ class EEGDataset(Dataset):
                 "Expected: labels, cnn, and rnn .npz files."
             )
 
-        # ── Load labels ──────────────────────────────────────────────────────
+        # ── Load everything into RAM ─────────────────────────────────────────
         print(f"[EEGDataset] Loading labels from {os.path.basename(labels_path)} …")
-        labels_raw   = np.load(labels_path, allow_pickle=True)["labels"]
-        self.classes = sorted(list(set(labels_raw)))
-        c2i          = {c: i for i, c in enumerate(self.classes)}
-        self.labels  = np.array([c2i[l] for l in labels_raw], dtype=np.int64)
-
-        # ── Load CNN data (fully into RAM) ───────────────────────────────────
+        all_labels = np.load(labels_path, allow_pickle=True)["labels"]
+        self.classes = sorted(list(set(all_labels)))
+        c2i = {c: i for i, c in enumerate(self.classes)}
+        
         print(f"[EEGDataset] Loading CNN data: {os.path.basename(cnn_path)} …")
-        self.cnn_data = np.load(cnn_path)["data"]          # kept as float16 to save RAM
+        all_cnn = np.load(cnn_path)["data"]  # float16
 
-        # ── Load RNN data (fully into RAM) ───────────────────────────────────
         print(f"[EEGDataset] Loading RNN data: {os.path.basename(rnn_path)} …")
-        self.rnn_data = np.load(rnn_path)["data"]          # kept as float16 to save RAM
+        all_rnn = np.load(rnn_path)["data"]  # float16
 
+        # ── Subject-based slicing ────────────────────────────────────────────
+        # total_len / 108 is the approximate samples per subject
+        samples_per_sub = len(all_labels) / 108.0
+        start_idx = int((start_subject - 1) * samples_per_sub)
+        end_idx   = int(end_subject * samples_per_sub)
+        
+        self.labels   = np.array([c2i[l] for l in all_labels[start_idx:end_idx]], dtype=np.int64)
+        self.cnn_data = all_cnn[start_idx:end_idx]
+        self.rnn_data = all_rnn[start_idx:end_idx]
         self.total_len = len(self.labels)
 
-        # ── Optional subject sub-sampling ────────────────────────────────────
-        if num_subjects and 0 < num_subjects < 108:
-            self.total_len = int((num_subjects / 108) * self.total_len)
-            print(
-                f"[EEGDataset] Limiting to first {num_subjects} subjects "
-                f"(~{self.total_len:,} samples)"
-            )
+        print(
+            f"[EEGDataset] Loaded Subjects {start_subject}-{end_subject} | "
+            f"{self.total_len:,} samples | classes = {self.classes}"
+        )
 
         print(
             f"[EEGDataset] Ready — {self.total_len:,} samples | "

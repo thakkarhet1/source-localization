@@ -28,7 +28,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ── Shared hyperparameters ─────────────────────────────────────────────────────
 WINDOW       = 10
 N_CLASSES    = 4       # 4 motor-imagery classes (set 5 if rest class kept)
-EPOCHS       = 40
+EPOCHS       = 100
 SEED         = 42
 TRAIN_RATIO  = 0.75
 NUM_SUBJECTS = 10      # Limit to first N subjects (0 or None for all 108)
