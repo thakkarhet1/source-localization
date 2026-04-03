@@ -28,13 +28,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ── Shared hyperparameters ─────────────────────────────────────────────────────
 WINDOW       = 10
 N_CLASSES    = 4       # 4 motor-imagery classes (set 5 if rest class kept)
-EPOCHS       = 10
+EPOCHS       = 40
 SEED         = 42
 TRAIN_RATIO  = 0.75
 NUM_SUBJECTS = 10      # Limit to first N subjects (0 or None for all 108)
 
 # ── M2 Pro-optimised batch size and LR ────────────────────────────────────────
-# M2 Pro has 16 GB unified memory; batch 128 is a good starting point.
 BATCH   = 32
 LR      = 1e-4
 DROPOUT = 0.5
