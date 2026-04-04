@@ -1,16 +1,13 @@
 """
-config.py — Central configuration for EEG Motor Imagery Parallel CNN-RNN.
+config.py — Central configuration for EEG Motor Imagery Parallel CNN-GRU.
 
-Optimised for Apple M2 Pro (Metal GPU) — uses MPS when available, falls back to CPU.
-All hyperparameters and path settings live here so every other module
-imports from a single source of truth.
+Optimised for Apple M2 Pro (Metal GPU).
 """
 
 import os
 import torch
 
 # ── Device ────────────────────────────────────────────────────────────────────
-# Priority: MPS (Apple Silicon) → CUDA → CPU
 if torch.backends.mps.is_available():
     DEVICE = torch.device("mps")
 elif torch.cuda.is_available():
@@ -27,26 +24,23 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # ── Shared hyperparameters ─────────────────────────────────────────────────────
 WINDOW       = 10
-N_CLASSES    = 4       # 4 motor-imagery classes (set 5 if rest class kept)
-EPOCHS       = 100
+N_CLASSES    = 4
+EPOCHS       = 20
 SEED         = 42
-TRAIN_RATIO  = 0.75
-NUM_SUBJECTS = 10      # Limit to first N subjects (0 or None for all 108)
+TRAIN_RATIO  = 0.8     # (Of the training subjects pool)
+NUM_SUBJECTS = 12      # 10 subjects pool + 2 subjects blind test
 
 # ── M2 Pro-optimised batch size and LR ────────────────────────────────────────
 BATCH   = 32
 LR      = 1e-4
-DROPOUT = 0.5
+DROPOUT = 0.5          # Increased from default if overfitting persisted
 
 # ── DataLoader settings ────────────────────────────────────────────────────────
-# num_workers > 0 can deadlock on macOS with MPS/OpenMP → 0 is safe.
-# pin_memory is only beneficial for CUDA; MPS/CPU use False.
 NUM_WORKERS     = 0
-PREFETCH_FACTOR = None   # Must be None when num_workers == 0
+PREFETCH_FACTOR = None
 PIN_MEMORY      = DEVICE.type == "cuda"
 
 # ── Parallel model config ──────────────────────────────────────────────────────
-# GRU replaces LSTM (see Gradcam EEG decoding paper).
 PARALLEL_CFG = dict(
     conv_channels=32,
     cnn_fc=256,
@@ -55,13 +49,9 @@ PARALLEL_CFG = dict(
     gru_hidden=16,
     gru_layers=2,
     rnn_fc_out=256,
-    fusion="concat",   # 'concat' | 'add' | 'concat_fc' | 'concat_conv1d'
+    fusion="concat",
 )
 
-# ── Sweep ──────────────────────────────────────────────────────────────────────
-SWEEP_EPOCHS = 10     # Keep short on M2 Pro; each epoch is slower than a T4 GPU
-
-# ── Checkpointing ──────────────────────────────────────────────────────────────
-# Save a full resume snapshot (and a dated epoch file) every N epochs.
-# Set to 1 to checkpoint after every epoch.
-CHECKPOINT_INTERVAL = 5
+# ── Checkpointing & Training ───────────────────────────────────────────────────
+CHECKPOINT_INTERVAL = 10
+SWEEP_EPOCHS        = 10

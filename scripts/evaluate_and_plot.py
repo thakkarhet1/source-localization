@@ -1,10 +1,5 @@
 """
 evaluate_and_plot.py — Final evaluation and result visualisation.
-
-Produces three figures saved to OUTPUT_DIR:
-  1. parallel_curves.png    — training / test loss and accuracy over epochs
-  2. parallel_confusion.png — raw counts + normalised confusion matrix
-  3. parallel_per_class.png — per-class accuracy bar chart
 """
 
 import os
@@ -23,37 +18,32 @@ import config
 from trainer import evaluate
 
 
-# ── Plotting helpers ───────────────────────────────────────────────────────────
-
 def plot_training_curves(
     history: Dict[str, List[float]],
     best_acc: float,
     output_dir: str = config.OUTPUT_DIR,
 ) -> None:
-    """Plot cross-entropy loss and accuracy curves and save to disk.
-
-    Args:
-        history    : dict with keys 'tr_loss', 'te_loss', 'tr_acc', 'te_acc'
-        best_acc   : peak test accuracy (drawn as a dashed reference line)
-        output_dir : directory to save the PNG
-    """
+    if history is None:
+        return
+        
     n_epochs = len(history["tr_loss"])
     ep       = range(1, n_epochs + 1)
 
     fig, (ax_loss, ax_acc) = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle("Parallel CNN-RNN — Training Curves", fontweight="bold")
+    fig.suptitle("Parallel CNN-GRU — Training Curves (Train vs Val)", fontweight="bold")
 
+    # Change keys from te_* to vl_* to match trainer.py
     ax_loss.plot(ep, history["tr_loss"], label="Train", color="steelblue", lw=1.5)
-    ax_loss.plot(ep, history["te_loss"], label="Test",  color="orangered",  lw=1.5)
+    ax_loss.plot(ep, history["vl_loss"], label="Val",   color="orangered",  lw=1.5)
     ax_loss.set(xlabel="Epoch", ylabel="Loss", title="Cross-Entropy Loss")
     ax_loss.legend()
     ax_loss.grid(alpha=0.3)
 
     ax_acc.plot(ep, [a * 100 for a in history["tr_acc"]], label="Train", color="steelblue", lw=1.5)
-    ax_acc.plot(ep, [a * 100 for a in history["te_acc"]], label="Test",  color="orangered",  lw=1.5)
+    ax_acc.plot(ep, [a * 100 for a in history["vl_acc"]], label="Val",   color="orangered",  lw=1.5)
     ax_acc.axhline(
         best_acc * 100, ls="--", color="green", alpha=0.7,
-        label=f"Best {best_acc * 100:.2f}%",
+        label=f"Best Val {best_acc * 100:.2f}%",
     )
     ax_acc.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.0f}%"))
     ax_acc.set(xlabel="Epoch", ylabel="Accuracy (%)", title="Accuracy")
@@ -73,16 +63,11 @@ def plot_confusion_matrix(
     class_names: List[str],
     output_dir: str = config.OUTPUT_DIR,
 ) -> np.ndarray:
-    """Plot raw count and normalised confusion matrices side by side.
-
-    Returns:
-        cm_norm : normalised confusion matrix (row-fraction)
-    """
     cm      = confusion_matrix(true_labels, predictions)
     cm_norm = cm.astype(float) / cm.sum(axis=1, keepdims=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle("Parallel CNN-RNN — Confusion Matrix", fontweight="bold")
+    fig.suptitle("Independent Test Set (Subjects 11-12) — Confusion Matrix", fontweight="bold")
 
     for ax, data, fmt, title in zip(
         axes,
@@ -113,7 +98,6 @@ def plot_per_class_accuracy(
     overall_acc: float,
     output_dir: str = config.OUTPUT_DIR,
 ) -> None:
-    """Bar chart of per-class (diagonal) accuracy."""
     per_class = cm_norm.diagonal()
     palette   = ["#4C72B0", "#DD8452", "#55A868", "#C44E52"] + ["#8172B2"] * 10
     colors    = palette[: len(class_names)]
@@ -131,14 +115,10 @@ def plot_per_class_accuracy(
 
     ax.axhline(
         overall_acc * 100, ls="--", color="black", alpha=0.5,
-        label=f"Overall {overall_acc * 100:.1f}%",
+        label=f"Overall Test {overall_acc * 100:.1f}%",
     )
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.0f}%"))
-    ax.set(
-        ylabel="Accuracy (%)",
-        title="Parallel CNN-RNN — Per-Class Accuracy",
-        ylim=(0, 115),
-    )
+    ax.set(ylabel="Accuracy (%)", title="Independent Test Accuracy Per Class", ylim=(0, 115))
     ax.legend()
     ax.grid(axis="y", alpha=0.3)
     ax.tick_params(axis="x", rotation=15)
@@ -150,8 +130,6 @@ def plot_per_class_accuracy(
     plt.close(fig)
 
 
-# ── Evaluation entry point ─────────────────────────────────────────────────────
-
 def run_final_evaluation(
     model: nn.Module,
     test_loader: DataLoader,
@@ -162,19 +140,6 @@ def run_final_evaluation(
     output_dir: str = config.OUTPUT_DIR,
     ckpt_path: str | None = None,
 ) -> None:
-    """Load best checkpoint, compute metrics, and save all plots.
-
-    Args:
-        model       : ParallelCNNRNN instance (architecture must match checkpoint)
-        test_loader : DataLoader for the held-out test set
-        class_names : ordered list of class name strings
-        history     : training history dict from run_training()
-        best_acc    : best accuracy recorded during training
-        device      : torch.device
-        output_dir  : directory where plots and checkpoint reside
-        ckpt_path   : path to the best-weights file; defaults to
-                      {output_dir}/best_parallel.pt
-    """
     if ckpt_path is None:
         ckpt_path = os.path.join(output_dir, "best_parallel.pt")
 
@@ -185,7 +150,7 @@ def run_final_evaluation(
     criterion = nn.CrossEntropyLoss()
     _, final_acc, preds, true_labels = evaluate(model, test_loader, criterion, device)
 
-    print(f"\n🏆  Final test accuracy: {final_acc:.4f}  ({final_acc * 100:.2f}%)")
+    print(f"\n🏆  FINAL INDEPENDENT TEST ACCURACY: {final_acc:.4f}  ({final_acc * 100:.2f}%)")
     print("\n── Classification Report ──")
     print(classification_report(true_labels, preds, target_names=class_names))
 
@@ -193,4 +158,4 @@ def run_final_evaluation(
     cm_norm = plot_confusion_matrix(true_labels, preds, class_names, output_dir)
     plot_per_class_accuracy(cm_norm, class_names, final_acc, output_dir)
 
-    print("\n✅  All evaluation plots saved.")
+    print("\n✅  All evaluation plots updated for Subject-Independent split.")
