@@ -53,18 +53,19 @@ class ParallelCNNGRU(nn.Module):
             nn.Conv2d(1,    ch,   3, padding=1), nn.BatchNorm2d(ch),   nn.ELU(inplace=True),
             nn.Conv2d(ch,   ch*2, 3, padding=1), nn.BatchNorm2d(ch*2), nn.ELU(inplace=True),
             nn.Conv2d(ch*2, ch*4, 3, padding=1), nn.BatchNorm2d(ch*4), nn.ELU(inplace=True),
+            nn.Conv2d(ch*4, ch*8, 3, padding=1), nn.BatchNorm2d(ch*8), nn.ELU(inplace=True), #added
             nn.AdaptiveAvgPool2d(1),
         )
         self.cnn_fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(ch * 4, cnn_fc),
+            nn.Linear(ch * 8, cnn_fc), #*4 initially
             nn.ELU(inplace=True),
             nn.Dropout(dropout),
         )
 
-        # ── GRU branch ─────────────────────────────────────────────────────────
         # GRU is chosen over LSTM per the Grad-CAM EEG decoding paper:
         #   fewer parameters, faster on MPS, comparable or better accuracy.
+        self.bidirectional = kwargs.get("bidirectional", False) #added
         self.rnn_proj = nn.Sequential(
             nn.Linear(n_electrodes, rnn_fc_in),
             nn.ELU(inplace=True),
@@ -73,9 +74,11 @@ class ParallelCNNGRU(nn.Module):
             rnn_fc_in, gru_hidden, gru_layers,
             batch_first=True,
             dropout=dropout if gru_layers > 1 else 0.0,
+            bidirectional=self.bidirectional,
         )
+        rnn_in_size = gru_hidden * 2 if self.bidirectional else gru_hidden
         self.rnn_head = nn.Sequential(
-            nn.Linear(gru_hidden, rnn_fc_out),
+            nn.Linear(rnn_in_size, rnn_fc_out),
             nn.ELU(inplace=True),
             nn.Dropout(dropout),
         )

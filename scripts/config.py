@@ -25,16 +25,15 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ── Shared hyperparameters ─────────────────────────────────────────────────────
 WINDOW       = 10
 N_CLASSES    = 4
-EPOCHS       = 40
+EPOCHS       = 100
 SEED         = 42
 TRAIN_RATIO  = 0.8     # (Of the training subjects pool)
 NUM_SUBJECTS = 12      # 10 subjects pool + 2 subjects blind test
 
 # ── M2 Pro-optimised batch size and LR ────────────────────────────────────────
 BATCH   = 32
-LR      = 1e-3
-DROPOUT = 0.7    
-#prev 0.5 1e-3 128      # Increased from default if overfitting persisted
+LR      = 1e-4
+DROPOUT = 0.5    
 
 # ── DataLoader settings ────────────────────────────────────────────────────────
 NUM_WORKERS     = 0
