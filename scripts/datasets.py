@@ -15,6 +15,28 @@ from torch.utils.data import DataLoader, Dataset, Subset, random_split
 import config
 
 
+class NoisySubset(Dataset):
+    """Wraps a Subset and adds Gaussian noise to EEG tensors during training.
+
+    Noise is applied to both the CNN (cnn_x) and RNN (rnn_x) inputs.
+    Each channel/timestep gets independent noise, matching the EEG signal
+    scale naturally. Set ``noise_std=0.0`` to effectively disable augmentation.
+    """
+
+    def __init__(self, subset: Dataset, noise_std: float = 0.0):
+        self.subset    = subset
+        self.noise_std = noise_std
+
+    def __len__(self) -> int:
+        return len(self.subset)
+
+    def __getitem__(self, idx: int):
+        cnn_x, rnn_x, label = self.subset[idx]
+        if self.noise_std > 0.0:
+            cnn_x = cnn_x + torch.randn_like(cnn_x) * self.noise_std
+            rnn_x = rnn_x + torch.randn_like(rnn_x) * self.noise_std
+        return cnn_x, rnn_x, label
+
 class EEGDataset(Dataset):
     """Dataset for the Parallel CNN-GRU model."""
 
@@ -95,6 +117,9 @@ def build_loaders(
     n_val   = len(pool_set) - n_train
     train_set, val_set = random_split(pool_set, [n_train, n_val], generator=generator)
 
+    # Wrap train_set with Gaussian noise augmentation
+    noisy_train_set = NoisySubset(train_set, noise_std=config.NOISE_STD)
+
     _loader_kwargs = dict(
         batch_size=batch_size,
         num_workers=num_workers,
@@ -103,13 +128,15 @@ def build_loaders(
         **({"prefetch_factor": config.PREFETCH_FACTOR} if num_workers > 0 else {}),
     )
 
-    train_loader = DataLoader(train_set, shuffle=True,  **_loader_kwargs)
-    val_loader   = DataLoader(val_set,   shuffle=False, **_loader_kwargs)
-    test_loader  = DataLoader(test_set,  shuffle=False, **_loader_kwargs)
+    train_loader = DataLoader(noisy_train_set, shuffle=True,  **_loader_kwargs)
+    val_loader   = DataLoader(val_set,         shuffle=False, **_loader_kwargs)
+    test_loader  = DataLoader(test_set,        shuffle=False, **_loader_kwargs)
 
     print(f"\n[build_loaders] Subject-Independent Split Summary:")
     print(f"  Subjects 01-10 (Pool) -> Train: {len(train_set):,} | Val: {len(val_set):,}")
     print(f"  Subjects 11-12 (Blind)-> Test : {len(test_set):,}")
-    print(f"  Total Active Samples  : {total_len:,}\n")
+    print(f"  Total Active Samples  : {total_len:,}")
+    noise_tag = f"std={config.NOISE_STD}" if config.NOISE_STD > 0 else "disabled"
+    print(f"  Gaussian Noise        : {noise_tag}\n")
 
     return train_loader, val_loader, test_loader, full_dataset.classes

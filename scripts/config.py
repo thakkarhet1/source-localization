@@ -25,7 +25,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ── Shared hyperparameters ─────────────────────────────────────────────────────
 WINDOW       = 10
 N_CLASSES    = 4
-EPOCHS       = 100
+EPOCHS       = 50
 SEED         = 42
 TRAIN_RATIO  = 0.8     # (Of the training subjects pool)
 NUM_SUBJECTS = 12      # 10 subjects pool + 2 subjects blind test
@@ -33,7 +33,24 @@ NUM_SUBJECTS = 12      # 10 subjects pool + 2 subjects blind test
 # ── M2 Pro-optimised batch size and LR ────────────────────────────────────────
 BATCH   = 32
 LR      = 1e-4
-DROPOUT = 0.5    
+DROPOUT = 0.5
+
+# ── Gradient Accumulation ─────────────────────────────────────────────────────
+# Effective batch size = BATCH * GRAD_ACCUM_STEPS (32 * 4 = 128).
+# The optimizer only steps every N micro-batches, simulating a larger batch
+# without the memory cost. Set to 1 to disable (standard per-batch updates).
+GRAD_ACCUM_STEPS = 4
+
+# ── LR Scheduler (CosineAnnealingLR) ──────────────────────────────────────────
+# T_max  : half-cycle length in epochs (set to EPOCHS for a single full cosine sweep)
+# ETA_MIN: minimum LR at the bottom of the cosine curve
+LR_T_MAX  = EPOCHS       # decay all the way to ETA_MIN over training
+LR_ETA_MIN = 1e-6
+
+# ── Data Augmentation ─────────────────────────────────────────────────────────
+# Gaussian noise added *only* to training samples to regularise the model.
+# Set to 0.0 to disable.
+NOISE_STD = 0.05
 
 # ── DataLoader settings ────────────────────────────────────────────────────────
 NUM_WORKERS     = 0
