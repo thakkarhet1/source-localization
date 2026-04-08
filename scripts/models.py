@@ -38,10 +38,10 @@ class ParallelCNNGRU(nn.Module):
         rnn_fc_in:    int   = 256,
         gru_hidden:   int   = 16,     # was lstm_hidden
         gru_layers:   int   = 2,      # was lstm_layers
-        rnn_fc_out:   int   = 128,
+        rnn_fc_out:   int   = 256,
         n_classes:    int   = 4,
         dropout:      float = 0.5,
-        fusion:       str   = "concat",
+        fusion:       str   = "add",
         **kwargs,                     # absorb extra config keys silently
     ):
         super().__init__()

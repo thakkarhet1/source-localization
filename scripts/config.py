@@ -25,15 +25,16 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ── Shared hyperparameters ─────────────────────────────────────────────────────
 WINDOW       = 10
 N_CLASSES    = 4
-EPOCHS       = 20
+EPOCHS       = 40
 SEED         = 42
 TRAIN_RATIO  = 0.8     # (Of the training subjects pool)
 NUM_SUBJECTS = 12      # 10 subjects pool + 2 subjects blind test
 
 # ── M2 Pro-optimised batch size and LR ────────────────────────────────────────
 BATCH   = 32
-LR      = 1e-4
-DROPOUT = 0.5          # Increased from default if overfitting persisted
+LR      = 1e-3
+DROPOUT = 0.7    
+#prev 0.5 1e-3 128      # Increased from default if overfitting persisted
 
 # ── DataLoader settings ────────────────────────────────────────────────────────
 NUM_WORKERS     = 0
@@ -49,7 +50,7 @@ PARALLEL_CFG = dict(
     gru_hidden=16,
     gru_layers=2,
     rnn_fc_out=256,
-    fusion="concat",
+    fusion="add",
 )
 
 # ── Checkpointing & Training ───────────────────────────────────────────────────
