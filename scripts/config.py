@@ -25,7 +25,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 # ── Shared hyperparameters ─────────────────────────────────────────────────────
 WINDOW       = 10
 N_CLASSES    = 4
-EPOCHS       = 50
+EPOCHS       = 100
 SEED         = 42
 TRAIN_RATIO  = 0.8     # (Of the training subjects pool)
 NUM_SUBJECTS = 12      # 10 subjects pool + 2 subjects blind test
