@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
@@ -50,13 +51,13 @@ EARLY_STOP_PATIENCE = 15
 
 PARALLEL_CFG = dict(
     conv_channels=32,
-    cnn_fc=256,
+    cnn_fc=512,
     n_electrodes=64,
-    rnn_fc_in=256,
-    gru_hidden=16,
+    rnn_fc_in=512,
+    gru_hidden=128,
     gru_layers=2,
-    rnn_fc_out=256,
-    fusion="add",
+    rnn_fc_out=512,
+    fusion="concat_fc",
 )
 
 
@@ -492,7 +493,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    # -- Generate Dynamic Output Dir --
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    folder_name = f"results_{args.epochs}_{timestamp}"
+    args.output_dir = os.path.join(os.path.dirname(args.output_dir), folder_name)
+    os.makedirs(args.output_dir, exist_ok=True)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     print(f"\n{'='*60}")
     print(f"  EEG Motor Imagery — Parallel CNN-GRU")
     print(f"{'='*60}")
@@ -502,6 +510,23 @@ def main() -> None:
     print(f"  Subjects   : {args.subjects}")
     print(f"  Epochs     : {args.epochs}")
     print(f"{'='*60}\n")
+
+    # -- Save Hyperparameters --
+    config = {
+        "global_params": {
+            "epochs": args.epochs,
+            "batch": args.batch,
+            "lr": args.lr,
+            "subjects": args.subjects,
+            "window": WINDOW,
+            "noise_std": NOISE_STD,
+            "grad_accum": GRAD_ACCUM_STEPS,
+        },
+        "model_cfg": PARALLEL_CFG
+    }
+    with open(os.path.join(args.output_dir, "config.json"), "w") as f:
+        json.dump(config, f, indent=4)
+    print(f"[main] Hyperparameters saved to {args.output_dir}/config.json")
 
     # ── 1. Download from GCS if needed ───────────────────────────────────────
     required_files = [
