@@ -1,0 +1,11 @@
+{
+  "test_loss": 0.5359351372831638,
+  "test_acc": 0.7748781237647678,
+  "best_val_acc": 0.7743666772074066,
+  "classes": [
+    "image_open&close_both_feet",
+    "image_open&close_both_fists",
+    "image_open&close_left_fist",
+    "image_open&close_right_fist"
+  ]
+}

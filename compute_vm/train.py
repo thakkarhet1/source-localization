@@ -24,7 +24,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.amp import GradScaler, autocast
-from torch.utils.data import DataLoader, Dataset, Subset, random_split
+from torch.utils.data import DataLoader, Dataset, Subset
 from tqdm import tqdm
 
 # ── Paths / GCS config ────────────────────────────────────────────────────────
@@ -249,31 +249,29 @@ class NoisySubset(Dataset):
 
 
 def build_loaders(
-    data_dir:     str,
-    num_subjects: int   = 12,
-    train_ratio:  float = 0.8,
-    batch_size:   int   = BATCH,
-    num_workers:  int   = NUM_WORKERS,
-    pin_memory:   bool  = True,
-    noise_std:    float = NOISE_STD,
-    seed:         int   = SEED,
+    data_dir:           str,
+    num_subjects:       int   = 108,
+    val_subject_count:  int   = 10,
+    test_subject_count: int   = 10,
+    batch_size:         int   = BATCH,
+    num_workers:        int   = NUM_WORKERS,
+    pin_memory:         bool  = True,
+    noise_std:          float = NOISE_STD,
+    seed:               int   = SEED,
 ):
     torch.manual_seed(seed)
-    generator = torch.Generator().manual_seed(seed)
 
     full_dataset        = EEGDataset(data_dir, num_subjects=num_subjects)
     total_len           = len(full_dataset)
-    test_subject_count  = 2
-    train_val_count     = num_subjects - test_subject_count
-    split_idx           = int(train_val_count * full_dataset.samples_per_subject)
+    sps                 = full_dataset.samples_per_subject  # samples per subject (float)
 
-    test_set = Subset(full_dataset, list(range(split_idx, total_len)))
-    pool_set = Subset(full_dataset, list(range(0, split_idx)))
+    train_subject_count = num_subjects - val_subject_count - test_subject_count
+    train_end           = int(train_subject_count * sps)
+    val_end             = int((train_subject_count + val_subject_count) * sps)
 
-    n_train = int(train_ratio * len(pool_set))
-    n_val   = len(pool_set) - n_train
-    train_set, val_set = random_split(pool_set, [n_train, n_val], generator=generator)
-
+    train_set   = Subset(full_dataset, list(range(0, train_end)))
+    val_set     = Subset(full_dataset, list(range(train_end, val_end)))
+    test_set    = Subset(full_dataset, list(range(val_end, total_len)))
     noisy_train = NoisySubset(train_set, noise_std=noise_std)
 
     _kw = dict(
@@ -287,10 +285,13 @@ def build_loaders(
     val_loader   = DataLoader(val_set,     shuffle=False, **_kw)
     test_loader  = DataLoader(test_set,    shuffle=False, **_kw)
 
-    noise_tag = f"std={noise_std}" if noise_std > 0 else "disabled"
-    print(f"\n[build_loaders] Subject-Independent Split:")
-    print(f"  Subjects 01-{train_val_count:02d} (Pool) -> Train: {len(train_set):,} | Val: {len(val_set):,}")
-    print(f"  Subjects {train_val_count+1:02d}-{num_subjects:02d} (Blind) -> Test: {len(test_set):,}")
+    val_start  = train_subject_count + 1
+    test_start = train_subject_count + val_subject_count + 1
+    noise_tag  = f"std={noise_std}" if noise_std > 0 else "disabled"
+    print(f"\n[build_loaders] Subject-Independent Split ({num_subjects} subjects total):")
+    print(f"  Train: S{1:03d}-S{train_subject_count:03d}  → {len(train_set):,} samples")
+    print(f"  Val  : S{val_start:03d}-S{train_subject_count + val_subject_count:03d}  → {len(val_set):,} samples")
+    print(f"  Test : S{test_start:03d}-S{num_subjects:03d}  → {len(test_set):,} samples")
     print(f"  Gaussian Noise: {noise_tag}\n")
 
     return train_loader, val_loader, test_loader, full_dataset.classes
@@ -479,12 +480,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs",      type=int,   default=EPOCHS)
     parser.add_argument("--batch",       type=int,   default=BATCH)
     parser.add_argument("--lr",          type=float, default=LR)
-    parser.add_argument("--subjects",    type=int,   default=12)
+    parser.add_argument("--subjects",    type=int,   default=108)
     parser.add_argument("--data_dir",    type=str,   default=DATA_DIR)
     parser.add_argument("--output_dir",  type=str,   default=OUTPUT_DIR)
     parser.add_argument("--gcs_bucket",  type=str,   default=GCS_BUCKET)
     parser.add_argument("--gcs_prefix",  type=str,   default=GCS_DATA_PREFIX)
     parser.add_argument("--num_workers", type=int,   default=NUM_WORKERS)
+    parser.add_argument("--resume_dir",  type=str,   default=None, help="Resume from this existing output dir (skips timestamp generation)")
     parser.add_argument("--download",    action="store_true", help="Force re-download from GCS")
     parser.add_argument("--eval_only",   action="store_true", help="Skip training; run blind test only")
     return parser.parse_args()
@@ -494,9 +496,12 @@ def main() -> None:
     args = parse_args()
 
     # -- Generate Dynamic Output Dir --
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    folder_name = f"results_{args.epochs}_{timestamp}"
-    args.output_dir = os.path.join(os.path.dirname(args.output_dir), folder_name)
+    if args.resume_dir:
+        args.output_dir = args.resume_dir
+    else:
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        folder_name = f"results_{args.epochs}_{timestamp}"
+        args.output_dir = os.path.join(os.path.dirname(args.output_dir), folder_name)
     os.makedirs(args.output_dir, exist_ok=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -584,7 +589,7 @@ def main() -> None:
     criterion = nn.CrossEntropyLoss()
     test_loss, test_acc = evaluate(model, test_loader, criterion, device)
     print(f"\n{'='*60}")
-    print(f"  BLIND TEST (Subjects 11-12)")
+    print(f"  BLIND TEST (last 10 subjects)")
     print(f"  Loss : {test_loss:.4f}")
     print(f"  Acc  : {test_acc:.4f}  ({test_acc*100:.1f}%)")
     print(f"  Best Val Acc : {best_val_acc:.4f}")
